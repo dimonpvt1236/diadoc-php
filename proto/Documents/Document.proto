@@ -75,7 +75,6 @@ message Document {
 	 string TypeNamedId = 63;
      string Function = 64;
      string Title = 66;
-     repeated MetadataItem Metadata = 67;
 }
 
 message ResolutionStatus {
