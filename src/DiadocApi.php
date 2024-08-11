@@ -1477,4 +1477,26 @@ class DiadocApi
             self::CONTENT_FORM_URL_ENCODED
         );
     }
+    
+    /**
+     * @param string $boxId
+     * @param string $messageId
+     * @param string $documentId
+     * @return string
+     * @throws \MagDv\Diadoc\Exception\DiadocApiException
+     * @throws \MagDv\Diadoc\Exception\DiadocApiUnauthorizedException
+     */
+    public function getPrintForm(string $boxId, string $messageId, string $documentId): string
+    {
+        return $this->doRequest(
+            self::RESOURCE_GENERATE_PRINT_FORM,
+            [],
+            [
+                'boxId'   => $boxId,
+                'messageId' => $messageId,
+                'documentId'  => $documentId,
+            ],
+            'GET'
+        );
+    }
 }
