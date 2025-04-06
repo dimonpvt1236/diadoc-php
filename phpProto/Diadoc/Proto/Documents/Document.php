@@ -233,6 +233,18 @@ class Document extends \Google\Protobuf\Internal\Message
      * Generated from protobuf field <code>.Diadoc.Proto.Documents.RecipientResponseStatus RecipientResponseStatus = 70;</code>
      */
     private $RecipientResponseStatus = 0;
+    /**
+     * Generated from protobuf field <code>string TypeNamedId = 63;</code>
+     */
+    private $TypeNamedId = '';
+    /**
+     * Generated from protobuf field <code>string Function = 64;</code>
+     */
+    private $Function = '';
+    /**
+     * Generated from protobuf field <code>string Title = 66;</code>
+     */
+    private $Title = '';
 
     /**
      * Constructor.
@@ -295,6 +307,9 @@ class Document extends \Google\Protobuf\Internal\Message
      *     @type \Diadoc\Proto\Documents\NonformalizedDocument\NonformalizedDocumentMetadata $CertificateRegistryMetadata
      *     @type \Diadoc\Proto\Documents\UniversalTransferDocument\UniversalTransferDocumentMetadata $UniversalTransferDocumentMetadata
      *     @type int $RecipientResponseStatus
+     *     @type string $TypeNamedId
+     *     @type string $Function
+     *     @type string $Title
      * }
      */
     public function __construct($data = NULL) {
@@ -1508,6 +1523,72 @@ class Document extends \Google\Protobuf\Internal\Message
     {
         GPBUtil::checkEnum($var, \Diadoc\Proto\Documents\RecipientResponseStatus::class);
         $this->RecipientResponseStatus = $var;
+
+        return $this;
+    }
+
+    /**
+     * Generated from protobuf field <code>string TypeNamedId = 63;</code>
+     * @return string
+     */
+    public function getTypeNamedId()
+    {
+        return $this->TypeNamedId;
+    }
+
+    /**
+     * Generated from protobuf field <code>string TypeNamedId = 63;</code>
+     * @param string $var
+     * @return $this
+     */
+    public function setTypeNamedId($var)
+    {
+        GPBUtil::checkString($var, True);
+        $this->TypeNamedId = $var;
+
+        return $this;
+    }
+
+    /**
+     * Generated from protobuf field <code>string Function = 64;</code>
+     * @return string
+     */
+    public function getFunction()
+    {
+        return $this->Function;
+    }
+
+    /**
+     * Generated from protobuf field <code>string Function = 64;</code>
+     * @param string $var
+     * @return $this
+     */
+    public function setFunction($var)
+    {
+        GPBUtil::checkString($var, True);
+        $this->Function = $var;
+
+        return $this;
+    }
+
+    /**
+     * Generated from protobuf field <code>string Title = 66;</code>
+     * @return string
+     */
+    public function getTitle()
+    {
+        return $this->Title;
+    }
+
+    /**
+     * Generated from protobuf field <code>string Title = 66;</code>
+     * @param string $var
+     * @return $this
+     */
+    public function setTitle($var)
+    {
+        GPBUtil::checkString($var, True);
+        $this->Title = $var;
 
         return $this;
     }

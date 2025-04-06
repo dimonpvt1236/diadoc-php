@@ -3,6 +3,8 @@
 namespace MagDv\Diadoc;
 
 use Diadoc\Proto\Documents\Types\GetDocumentTypesResponseV2;
+use Diadoc\Proto\DssSignRequest;
+use Diadoc\Proto\DssSignResult;
 use Diadoc\Proto\Events\SignedContent;
 use Diadoc\Proto\LoginPassword;
 use Exception;
@@ -437,6 +439,18 @@ class DiadocApi
      */
     final public const RESOURCE_GET_DOCFLOWS_EVENTS = '/V2/GetDocflowEvents';
 
+    // DssSign
+
+    /**
+     * @var string
+     */
+    final public const RESOURCE_DSS_SIGN = '/DssSign';
+
+    /**
+     * @var string
+     */
+    final public const RESOURCE_DSS_SIGN_RESULT = '/DssSignResult';
+
     // Cloud sign
     /**
      * @var string
@@ -853,7 +867,7 @@ class DiadocApi
      * @return AsyncMethodResult| \Google\Protobuf\Internal\Message
      * @throws DiadocApiException
      */
-    public function acquireCounteragentWithDocument(string $myOrgId, string $counteragentOrgId, string $myDepartmentId, InvitationDocument $invitationDocument = null, string $messageToContragent = ''): AsyncMethodResult
+    public function acquireCounteragentWithDocument(string $myOrgId, string $counteragentOrgId, ?string $myDepartmentId = null, InvitationDocument $invitationDocument = null, string $messageToContragent = ''): AsyncMethodResult
     {
         $acquireCounteragentRequest = new AcquireCounteragentRequest();
         $acquireCounteragentRequest->setOrgId($counteragentOrgId);
@@ -865,7 +879,7 @@ class DiadocApi
             $acquireCounteragentRequest->serializeToString(),
             [
                 'myOrgId' => $myOrgId,
-                'myDepartmentId'    => $myDepartmentId,
+                'myDepartmentId' => $myDepartmentId,
             ],
             self::METHOD_POST
         );
@@ -1471,7 +1485,7 @@ class DiadocApi
             [
                 'nameOnShelf' => $nameOnShelf,
                 'partIndex' => $partIndex,
-                'isLastPart'    => $isLastPart,
+                'isLastPart' => $isLastPart,
             ],
             self::METHOD_POST,
             self::CONTENT_FORM_URL_ENCODED
@@ -1492,11 +1506,62 @@ class DiadocApi
             self::RESOURCE_GENERATE_PRINT_FORM,
             [],
             [
-                'boxId'   => $boxId,
+                'boxId' => $boxId,
                 'messageId' => $messageId,
                 'documentId'  => $documentId,
             ],
             'GET'
         );
+    }
+
+    /**
+     * @param string $boxId
+     * @param DssSignRequest $signRequest
+     * @param string|null $certificateThumbprint
+     * @return AsyncMethodResult
+     * @throws DiadocApiException
+     * @throws DiadocApiUnauthorizedException
+     */
+    public function dssSign(string $boxId, DssSignRequest $signRequest, ?string $certificateThumbprint = null): AsyncMethodResult
+    {
+        $response = $this->doRequest(
+            self::RESOURCE_DSS_SIGN,
+            $signRequest->serializeToString(),
+            [
+                'boxId' => $boxId,
+                'certificateThumbprint' => $certificateThumbprint,
+            ],
+            self::METHOD_POST,
+        );
+
+        $asyncMethodResult = new AsyncMethodResult();
+        $asyncMethodResult->mergeFromString($response);
+
+        return $asyncMethodResult;
+    }
+
+    /**
+     * @param string $boxId
+     * @param string $taskId
+     * @return DssSignResult
+     * @throws DiadocApiException
+     * @throws DiadocApiUnauthorizedException
+     */
+    public function getDssSignResult(string $boxId, string $taskId): DssSignResult
+    {
+        $response = $this->doRequest(
+            self::RESOURCE_DSS_SIGN_RESULT,
+            [],
+            [
+                'boxId' => $boxId,
+                'taskId' => $taskId,
+            ],
+            self::METHOD_POST,
+        );
+
+        $signResult = new DssSignResult();
+        $signResult->mergeFromString($response);
+
+        return $signResult;
     }
 }

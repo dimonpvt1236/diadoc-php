@@ -1,0 +1,47 @@
+syntax="proto3";
+package Diadoc.Proto;
+
+message DssSignResult {
+    DssOperationStatus OperationStatus = 1;
+    repeated DssFileSigningResult FileSigningResults = 2;
+    DssConfirmType ConfirmType = 3;
+    DssOperator Operator = 4;
+    string PhoneLastNumbers = 5;
+}
+
+message DssFileSigningResult {
+    DssFileSigningStatus FileSigningStatus = 1;
+    bytes Signature = 2;
+}
+
+enum DssOperationStatus {
+    Unknown = 0;
+    InProgress = 1;
+    Completed = 2;
+    CanceledByUser = 3;
+    Timeout = 4;
+    Crashed = 5;
+    UserHasUnconfirmedOperation = 6;
+    OperationRetryRequired = 7;
+}
+
+enum DssFileSigningStatus {
+    UnknownSigningStatus = 0;
+    SigningCompleted = 1;
+    SigningError = 2;
+}
+
+enum DssConfirmType {
+    None = 0;
+    ComfirmTypeUnknown = -1;
+    Sms = 1;
+    MyDss = 2;
+    Applet = 3;
+    MobileSdk = 4;
+}
+
+enum DssOperator {
+    OperatorUnknown = 0;
+    Megafon = 1;
+    Kontur = 2;
+}

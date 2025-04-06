@@ -1,0 +1,13 @@
+syntax="proto3";
+import "Content_v3.proto";
+
+package Diadoc.Proto;
+
+message DssSignRequest {
+    repeated DssSignFile Files = 1;
+}
+
+message DssSignFile {
+    Content_v3 Content = 1;
+    string FileName = 2;
+}
