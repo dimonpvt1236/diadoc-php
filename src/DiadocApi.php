@@ -7,6 +7,7 @@ use Diadoc\Proto\DssSignRequest;
 use Diadoc\Proto\DssSignResult;
 use Diadoc\Proto\Events\SignedContent;
 use Diadoc\Proto\LoginPassword;
+use Diadoc\Proto\RoamingOperatorInformation;
 use Exception;
 use DateTime;
 use Diadoc\Proto\AcquireCounteragentRequest;
@@ -450,6 +451,11 @@ class DiadocApi
      * @var string
      */
     final public const RESOURCE_DSS_SIGN_RESULT = '/DssSignResult';
+
+    /**
+     * @var string
+     */
+    final public const RESOURCE_GET_ROAMING_OPERATORS = '/GetRoamingOperators';
 
     // Cloud sign
     /**
@@ -1563,5 +1569,27 @@ class DiadocApi
         $signResult->mergeFromString($response);
 
         return $signResult;
+    }
+
+    /**
+     * @param string $boxId
+     * @return RoamingOperatorInformation
+     * @throws DiadocApiException
+     * @throws DiadocApiUnauthorizedException
+     */
+    public function getRoamingOperators(string $boxId): RoamingOperatorInformation
+    {
+        $response = $this->doRequest(
+            self::RESOURCE_GET_ROAMING_OPERATORS,
+            [],
+            [
+                'boxId' => $boxId,
+            ],
+        );
+
+        $roamingResult = new RoamingOperatorInformation();
+        $roamingResult->mergeFromString($response);
+
+        return $roamingResult;
     }
 }

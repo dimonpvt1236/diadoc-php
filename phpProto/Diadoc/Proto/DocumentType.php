@@ -135,48 +135,5 @@ class DocumentType
      * Generated from protobuf enum <code>LogisticsWaybill = 51;</code>
      */
     const LogisticsWaybill = 51;
-
-    private static $valueToName = [
-        self::Nonformalized => 'Nonformalized',
-        self::UnknownDocumentType => 'UnknownDocumentType',
-        self::Invoice => 'Invoice',
-        self::TrustConnectionRequest => 'TrustConnectionRequest',
-        self::Torg12 => 'Torg12',
-        self::InvoiceRevision => 'InvoiceRevision',
-        self::InvoiceCorrection => 'InvoiceCorrection',
-        self::InvoiceCorrectionRevision => 'InvoiceCorrectionRevision',
-        self::AcceptanceCertificate => 'AcceptanceCertificate',
-        self::ProformaInvoice => 'ProformaInvoice',
-        self::XmlTorg12 => 'XmlTorg12',
-        self::XmlAcceptanceCertificate => 'XmlAcceptanceCertificate',
-        self::PriceList => 'PriceList',
-        self::PriceListAgreement => 'PriceListAgreement',
-        self::CertificateRegistry => 'CertificateRegistry',
-        self::ReconciliationAct => 'ReconciliationAct',
-        self::Contract => 'Contract',
-        self::Torg13 => 'Torg13',
-        self::ServiceDetails => 'ServiceDetails',
-        self::SupplementaryAgreement => 'SupplementaryAgreement',
-        self::UniversalTransferDocument => 'UniversalTransferDocument',
-        self::UniversalTransferDocumentRevision => 'UniversalTransferDocumentRevision',
-        self::UniversalCorrectionDocument => 'UniversalCorrectionDocument',
-        self::UniversalCorrectionDocumentRevision => 'UniversalCorrectionDocumentRevision',
-        self::StorageInventoryAcceptanceCertificate => 'StorageInventoryAcceptanceCertificate',
-        self::ReturnInventoryAcceptanceCertificate => 'ReturnInventoryAcceptanceCertificate',
-        self::Torg2 => 'Torg2',
-        self::ElectricityIndication => 'ElectricityIndication',
-        self::Waybill => 'Waybill',
-        self::PowerOfAttorney => 'PowerOfAttorney',
-        self::LogisticsWaybill => 'LogisticsWaybill',
-    ];
-
-    public static function name($value) : string
-    {
-        if (!isset(self::$valueToName[$value])) {
-            throw new \Exception(sprintf(
-                'Enum %s has no name defined for value %s', __CLASS__, $value));
-        }
-        return self::$valueToName[$value];
-    }
 }
 
