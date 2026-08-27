@@ -46,6 +46,9 @@ use Diadoc\Proto\TimeBasedFilter;
 use Diadoc\Proto\Timestamp;
 use Diadoc\Proto\User;
 use Exception;
+use MagDv\Diadoc\Auth\AuthModeInterface;
+use MagDv\Diadoc\Auth\AuthenticateV3AuthMode;
+use MagDv\Diadoc\Auth\OidcAuthMode;
 use MagDv\Diadoc\Exception\DiadocApiException;
 use MagDv\Diadoc\Exception\DiadocApiUnauthorizedException;
 use MagDv\Diadoc\Filter\DocumentsFilter;
@@ -68,6 +71,20 @@ class DiadocApi
      * @var string
      */
     final public const METHOD_POST = 'POST';
+
+    /**
+     * Режим авторизации OpenID Connect (Authorization: Bearer).
+     *
+     * @var string
+     */
+    final public const AUTH_MODE_OIDC = OidcAuthMode::MODE;
+
+    /**
+     * Устаревший режим авторизации DiadocAuth (ddauth_api_client_id + ddauth_token).
+     *
+     * @var string
+     */
+    final public const AUTH_MODE_AUTHENTICATE_V3 = AuthenticateV3AuthMode::MODE;
 
     // Authorization
     /**
@@ -479,14 +496,66 @@ class DiadocApi
      */
     final public const RESOURCE_AUTO_SIGN_RECEIPTS_RESULT = '/AutoSignReceiptsResult';
 
-    private ?string $token = null;
+    private AuthModeInterface $authMode;
 
+    /**
+     * Конструктор для обратной совместимости: использует устаревший DiadocAuth (authenticate_v3).
+     *
+     * Для произвольного режима авторизации (в т.ч. OIDC) используйте {@see self::create()}.
+     */
     public function __construct(
-        private readonly string $ddauthApiClientId,
+        string $ddauthApiClientId,
         private readonly string $serviceUrl = 'https://diadoc-api.kontur.ru/',
         private readonly bool $debugRequest = false,
         private readonly ?SignerProviderInterface $signerProvider = null
     ) {
+        $this->authMode = new AuthenticateV3AuthMode($ddauthApiClientId);
+    }
+
+    /**
+     * Создать экземпляр API с произвольным режимом авторизации.
+     *
+     * Пример с OpenID Connect:
+     * <code>
+     * $api = DiadocApi::create(
+     *     new OidcAuthMode($clientId, $clientSecret, 'https://identity.kontur.ru', $serviceUrl),
+     *     $serviceUrl
+     * );
+     * </code>
+     *
+     * @param AuthModeInterface            $authMode       стратегия авторизации ({@see OidcAuthMode}, {@see AuthenticateV3AuthMode}, ...)
+     * @param string                       $serviceUrl     базовый URL API Диадока
+     * @param bool                         $debugRequest   логировать HTTP-запросы
+     * @param SignerProviderInterface|null $signerProvider провайдер подписи для cloud-подписания
+     *
+     * @throws \RuntimeException если serviceUrl стратегии не совпадает с $serviceUrl
+     */
+    public static function create(
+        AuthModeInterface $authMode,
+        string $serviceUrl = 'https://diadoc-api.kontur.ru/',
+        bool $debugRequest = false,
+        ?SignerProviderInterface $signerProvider = null
+    ): self {
+        // OidcAuthMode резолвит scope по своему serviceUrl — он обязан совпадать
+        // с URL, по которому будет ходить сам клиент. Проверка здесь гарантирует,
+        // что рассинхронизация конфигурации будет обнаружена сразу при создании клиента.
+        if (
+            $authMode instanceof OidcAuthMode
+            && rtrim($authMode->serviceUrl, '/') !== rtrim($serviceUrl, '/')
+        ) {
+            throw new \RuntimeException(
+                sprintf(
+                    'OidcAuthMode создан для "%s", а DiadocApi будет работать с "%s": scope может быть определён неверно',
+                    $authMode->serviceUrl,
+                    $serviceUrl
+                )
+            );
+        }
+
+        $api = new self('', $serviceUrl, $debugRequest, $signerProvider);
+        $api->authMode = $authMode;
+
+        return $api;
     }
 
     public function authenticateLogin(string $login, string $password): string
@@ -526,24 +595,21 @@ class DiadocApi
         return $response;
     }
 
-    private function buildRequestHeaders(?string $contentType = null): array
+    private function buildRequestHeaders(?string $contentType = null, string $method = self::METHOD_GET, bool $forAuthenticateCall = false): array
     {
-        $header = sprintf('DiadocAuth ddauth_api_client_id=%s', $this->ddauthApiClientId);
-        if ($token = $this->getToken()) {
-            $header .= sprintf(', ddauth_token=%s', $token);
-        }
-
-        return ['Authorization: ' . $header, "Content-type: " . ($contentType ?: 'application/x-protobuf')];
+        return $this->authMode->buildRequestHeaders($contentType, $method, $forAuthenticateCall);
     }
 
     /**
      * @throws DiadocApiException
      * @throws DiadocApiUnauthorizedException
      */
-    protected function doRequest(string $resource, mixed $postData = [], array $queryParams = [], string $method = self::METHOD_GET, ?string $contentType = null): string
+    protected function doRequest(string $resource, array|string $postData = [], array $queryParams = [], string $method = self::METHOD_GET, ?string $contentType = null): string
     {
-        if (!$this->getToken() && !in_array($resource, [self::RESOURCE_AUTHENTICATE, self::RESOURCE_AUTHENTICATE_V2, self::RESOURCE_AUTHENTICATE_V3], true)) {
-            throw new Exception('Unauthorized request');
+        $isAuthenticateEndpoint = in_array($resource, [self::RESOURCE_AUTHENTICATE, self::RESOURCE_AUTHENTICATE_V2, self::RESOURCE_AUTHENTICATE_V3], true);
+
+        if (!$isAuthenticateEndpoint) {
+            $this->authMode->ensureReady();
         }
 
         $uri = sprintf(
@@ -553,11 +619,33 @@ class DiadocApi
             http_build_query($queryParams)
         );
 
+        $attempt = 0;
+        while (true) {
+            try {
+                return $this->executeDiadocHttpRequest($uri, $postData, $method, $contentType, $isAuthenticateEndpoint);
+            } catch (DiadocApiUnauthorizedException $e) {
+                ++$attempt;
+                if ($attempt > 1 || !$this->authMode->handleUnauthorized()) {
+                    throw $e;
+                }
+            }
+        }
+    }
+
+    /**
+     * @param array|string $postData
+     * @param bool         $forAuthenticateCall
+     *
+     * @throws DiadocApiException
+     * @throws DiadocApiUnauthorizedException
+     */
+    private function executeDiadocHttpRequest(string $uri, mixed $postData, string $method, ?string $contentType, bool $forAuthenticateCall = false): string
+    {
         $ch = \curl_init($uri);
         \curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
         \curl_setopt($ch, CURLOPT_TIMEOUT, 20);
         \curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-        \curl_setopt($ch, CURLOPT_HTTPHEADER, $this->buildRequestHeaders($contentType));
+        \curl_setopt($ch, CURLOPT_HTTPHEADER, $this->buildRequestHeaders($contentType, $method, $forAuthenticateCall));
 
         if ($method === self::METHOD_POST) {
             \curl_setopt($ch, CURLOPT_POST, 0);
@@ -1478,14 +1566,122 @@ class DiadocApi
         return $boxEventList;
     }
 
-    protected function getToken(): ?string
+    public function getToken(): ?string
     {
-        return $this->token;
+        return $this->authMode->getToken();
     }
 
     public function setToken(?string $token): void
     {
-        $this->token = $token;
+        $this->authMode->setToken($token);
+    }
+
+    /**
+     * Текущий режим авторизации (self::AUTH_MODE_OIDC | self::AUTH_MODE_AUTHENTICATE_V3).
+     */
+    public function getAuthMode(): string
+    {
+        return $this->authMode->getMode();
+    }
+
+    /**
+     * Установить ddauth-токен для режима authenticate_v3.
+     *
+     * @throws DiadocApiException если текущий режим не authenticate_v3
+     */
+    public function setLegacyToken(?string $token): void
+    {
+        if (!$this->authMode instanceof AuthenticateV3AuthMode) {
+            throw new DiadocApiException(
+                'setLegacyToken() доступен только при auth mode ' . self::AUTH_MODE_AUTHENTICATE_V3,
+                0
+            );
+        }
+
+        $this->authMode->setToken($token);
+    }
+
+    /**
+     * URL редиректа на страницу авторизации Контур (Authorization Code Flow).
+     *
+     * @see https://developer.kontur.ru/docs/diadoc-api/authentication.html
+     *
+     * @throws DiadocApiException если текущий режим не OIDC
+     */
+    public function buildAuthorizationUrl(string $redirectUri, string $state, ?string $nonce = null): string
+    {
+        return $this->oidc()->buildAuthorizationUrl($redirectUri, $state, $nonce);
+    }
+
+    /**
+     * Обмен authorization code на access/refresh токены.
+     *
+     * @throws DiadocApiException
+     */
+    public function exchangeAuthorizationCode(string $code, string $redirectUri): void
+    {
+        $this->oidc()->exchangeAuthorizationCode($code, $redirectUri);
+    }
+
+    /**
+     * Обновление access_token по refresh_token.
+     *
+     * @throws DiadocApiException
+     */
+    public function refreshAccessToken(): void
+    {
+        $this->oidc()->refreshAccessToken();
+    }
+
+    /**
+     * Установить токены вручную (например из кеша после перезапуска).
+     *
+     * @param int|null $expiresAtUnix время истечения access_token (unix), null — неизвестно (без проактивного refresh)
+     */
+    public function setOAuthSession(string $accessToken, ?string $refreshToken = null, ?int $expiresAtUnix = null): void
+    {
+        $this->oidc()->setOAuthSession($accessToken, $refreshToken, $expiresAtUnix);
+    }
+
+    /**
+     * @return array{access_token: string, refresh_token: ?string, expires_at: ?int}
+     */
+    public function getOAuthSessionState(): array
+    {
+        return $this->oidc()->getOAuthSessionState();
+    }
+
+    /**
+     * Колбэк вызывается после обмена кода, refresh и при {@see setOAuthSession}, чтобы сохранить сессию (файл, БД).
+     *
+     * @param callable|null $callback function (array $session): void
+     */
+    public function setOAuthSessionPersistenceCallback(?callable $callback): void
+    {
+        $this->oidc()->setOAuthSessionPersistenceCallback($callback);
+    }
+
+    /**
+     * OIDC scope для текущего окружения (Diadoc.PublicAPI / Diadoc.PublicAPI.Staging).
+     */
+    public function getOidcScope(): string
+    {
+        return $this->oidc()->getOidcScope();
+    }
+
+    /**
+     * @throws DiadocApiException если текущий режим не OIDC
+     */
+    private function oidc(): OidcAuthMode
+    {
+        if (!$this->authMode instanceof OidcAuthMode) {
+            throw new DiadocApiException(
+                'Метод доступен только при auth mode ' . self::AUTH_MODE_OIDC . '. Используйте DiadocApi::create() с OidcAuthMode.',
+                0
+            );
+        }
+
+        return $this->authMode;
     }
 
     public function generateInvitationDocument(string $content, string $title, bool $signatureRequested = false): InvitationDocument

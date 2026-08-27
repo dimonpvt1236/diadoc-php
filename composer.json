@@ -3,12 +3,25 @@
     "description": "Diadoc API implementation",
     "type": "library",
     "license": "MIT",
+    "homepage": "https://github.com/magdv/diadoc-php",
     "authors": [
         {
             "name": "Korolev Denis",
             "email": "d.korolev@magdv.com"
+        },
+        {
+            "name": "Sidorov Sergey",
+            "email": "serjazz7@gmail.com"
+        },
+        {
+            "name": "Dmitry Danilson",
+            "email": "d.danilson@magdv.com"
         }
     ],
+    "support": {
+        "source": "https://github.com/magdv/diadoc-php",
+        "issues": "https://github.com/magdv/diadoc-php/issues"
+    },
     "require": {
         "php": ">=8.2",
         "google/protobuf": "^4.31.1 || ^5.34",

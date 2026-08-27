@@ -58,9 +58,66 @@ foreach ($contragents->getCounteragents() as $item) {
 ```
 
 
+## Авторизация
+
+### Устаревшая (DiadocAuth) — по умолчанию
+
+Конструктор `DiadocApi` по умолчанию использует устаревший способ авторизации `DiadocAuth` (`ddauth_api_client_id` + `ddauth_token`):
+
+```php
+$api = new \MagDv\Diadoc\DiadocApi(
+    '111111111111111111111111111111111',
+    'https://diadoc-api.kontur.ru/'
+);
+$token = $api->authenticateLogin('login@example.com', 'password');
+$api->setToken($token);
+```
+
+### OpenID Connect (OIDC)
+
+Для OIDC-авторизации (Authorization Code + Bearer) используйте статический фабричный метод `DiadocApi::create()`, передав ему стратегию `OidcAuthMode`:
+
+```php
+$serviceUrl = 'https://diadoc-api.kontur.ru/';
+
+$api = \MagDv\Diadoc\DiadocApi::create(
+    new \MagDv\Diadoc\Auth\OidcAuthMode(
+        'oauth-client-id',
+        'oauth-client-secret',
+        'https://identity.kontur.ru',
+        $serviceUrl
+    ),
+    $serviceUrl
+);
+
+// 1. Получить URL авторизации и перенаправить пользователя
+$authUrl = $api->buildAuthorizationUrl('https://app.example/oauth/callback', $state);
+
+// 2. После редиректа обменять authorization code на токены
+$api->exchangeAuthorizationCode($_GET['code'], 'https://app.example/oauth/callback');
+
+// 3. Токены можно сохранить и восстановить позже
+$session = $api->getOAuthSessionState();
+$api->setOAuthSession($session['access_token'], $session['refresh_token'], $session['expires_at']);
+```
+
+`create()` принимает любую реализацию `AuthModeInterface` — так можно подключить собственный способ авторизации без изменения `DiadocApi`. Для OIDC-стратегии фабрика проверяет, что `serviceUrl` стратегии совпадает с URL клиента, и бросает `\RuntimeException` при рассинхронизации конфигурации.
+
+OIDC автоматически:
+- проактивно обновляет `access_token` по `refresh_token` до истечения срока;
+- повторяет запрос один раз при `401` с refresh-токеном;
+- определяет scope (`Diadoc.PublicAPI` / `Diadoc.PublicAPI.Staging`) по окружению.
+
+Для локального теста OAuth-потока есть встроенный сервер:
+
+```bash
+docker compose --profile oauth up oauth-test
+# браузер: http://127.0.0.1:8765/
+```
+
 ## Тесты
 
-     Тест не дает полной картины работоспособности апи. 
+     Тесты не дают полной картины работоспособности апи. 
      Мы не можем быть уверены, что нам всегда возвращают нужные данные, т.к. стенд тестовый.
      Тут я скорее проверяют, что обращаюсь куда надо и что плюс-минус все работает.
      
