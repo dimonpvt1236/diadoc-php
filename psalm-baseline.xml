@@ -23,10 +23,6 @@
       <code>$entityId</code>
       <code>$messageId</code>
     </MissingParamType>
-    <MixedArgument occurrences="2">
-      <code>$entityId</code>
-      <code>$messageId</code>
-    </MixedArgument>
     <MoreSpecificReturnType occurrences="4">
       <code>Document</code>
       <code>GetDocflowsByPacketIdResponse</code>
@@ -44,9 +40,8 @@
     <InvalidReturnType occurrences="1">
       <code>string</code>
     </InvalidReturnType>
-    <InvalidScalarArgument occurrences="2">
+    <InvalidScalarArgument occurrences="1">
       <code>$afterIndexKey</code>
-      <code>$response</code>
     </InvalidScalarArgument>
     <MismatchingDocblockReturnType occurrences="21">
       <code>AcquireCounteragentResult| \Google\Protobuf\Internal\Message</code>
@@ -71,33 +66,6 @@
       <code>SearchDocflowsResponse| \Google\Protobuf\Internal\Message</code>
       <code>User| \Google\Protobuf\Internal\Message</code>
     </MismatchingDocblockReturnType>
-    <MixedArgument occurrences="2">
-      <code>$httpCode</code>
-      <code>$httpCode</code>
-    </MixedArgument>
-    <MixedInferredReturnType occurrences="21">
-      <code>AcquireCounteragentResult| \Google\Protobuf\Internal\Message</code>
-      <code>AsyncMethodResult| \Google\Protobuf\Internal\Message</code>
-      <code>AsyncMethodResult| \Google\Protobuf\Internal\Message</code>
-      <code>Counteragent| \Google\Protobuf\Internal\Message</code>
-      <code>Counteragent| \Google\Protobuf\Internal\Message</code>
-      <code>Document| \Google\Protobuf\Internal\Message</code>
-      <code>GetDocflowsByPacketIdResponse| \Google\Protobuf\Internal\Message</code>
-      <code>GetOrganizationsByInnListResponse| \Google\Protobuf\Internal\Message</code>
-      <code>MessagePatch| \Google\Protobuf\Internal\Message</code>
-      <code>Message| \Google\Protobuf\Internal\Message</code>
-      <code>Message| \Google\Protobuf\Internal\Message</code>
-      <code>Message| \Google\Protobuf\Internal\Message</code>
-      <code>OrganizationList| \Google\Protobuf\Internal\Message</code>
-      <code>OrganizationList| \Google\Protobuf\Internal\Message</code>
-      <code>OrganizationUsersList| \Google\Protobuf\Internal\Message</code>
-      <code>Organization| \Google\Protobuf\Internal\Message</code>
-      <code>Organization| \Google\Protobuf\Internal\Message</code>
-      <code>Organization| \Google\Protobuf\Internal\Message</code>
-      <code>RussianAddress| \Google\Protobuf\Internal\Message</code>
-      <code>SearchDocflowsResponse| \Google\Protobuf\Internal\Message</code>
-      <code>User| \Google\Protobuf\Internal\Message</code>
-    </MixedInferredReturnType>
     <PossiblyNullArgument occurrences="5">
       <code>$fromTimestamp</code>
       <code>$sortDirection</code>
@@ -145,9 +113,6 @@
     <MismatchingDocblockReturnType occurrences="1">
       <code>AsyncMethodResult|Message</code>
     </MismatchingDocblockReturnType>
-    <MixedInferredReturnType occurrences="1">
-      <code>AsyncMethodResult|Message</code>
-    </MixedInferredReturnType>
     <MoreSpecificReturnType occurrences="8">
       <code>AsyncMethodResult</code>
       <code>Counteragent</code>
@@ -171,12 +136,6 @@
       <code>$buffer</code>
       <code>$type</code>
     </MissingClosureParamType>
-    <MixedOperand occurrences="1">
-      <code>$buffer</code>
-    </MixedOperand>
-  </file>
-  <file src="tests/Unit/AuthTest.php">
-    <PossiblyFalseArgument occurrences="1"/>
   </file>
   <file src="tests/Unit/CouteragentsTest.php">
     <PossiblyFalseArgument occurrences="3">
@@ -188,38 +147,18 @@
       <code>$org</code>
       <code>$org</code>
     </RedundantConditionGivenDocblockType>
-    <UnusedVariable occurrences="2">
-      <code>$ddd</code>
-      <code>$result</code>
-    </UnusedVariable>
   </file>
   <file src="tests/Unit/DocumentTypesTest.php">
     <PossiblyFalseArgument occurrences="1">
       <code>getenv(ConfigNames::FROM_BOX_ID)</code>
     </PossiblyFalseArgument>
-    <UnnecessaryVarAnnotation occurrences="1">
-      <code>\Diadoc\Proto\Documents\Types\DocumentTypeDescriptionV2</code>
-    </UnnecessaryVarAnnotation>
   </file>
   <file src="tests/Unit/GetMyOrganizationsTest.php">
-    <MixedMethodCall occurrences="1">
-      <code>count</code>
-    </MixedMethodCall>
     <PossiblyUndefinedMethod occurrences="1">
       <code>getOrganizations</code>
     </PossiblyUndefinedMethod>
   </file>
   <file src="tests/Unit/MessageTest.php">
-    <MixedArgument occurrences="2">
-      <code>$entities[0]-&gt;getEntityId()</code>
-      <code>DocumentType::name(DocumentType::LogisticsWaybill)</code>
-    </MixedArgument>
-    <MixedArrayAccess occurrences="1">
-      <code>$entities[0]</code>
-    </MixedArrayAccess>
-    <MixedMethodCall occurrences="1">
-      <code>getEntityId</code>
-    </MixedMethodCall>
     <PossiblyFalseArgument occurrences="2">
       <code>getenv(ConfigNames::FROM_BOX_ID)</code>
       <code>getenv(ConfigNames::TO_BOX_ID)</code>
@@ -227,34 +166,10 @@
     <PossiblyUndefinedMethod occurrences="1">
       <code>getEntities</code>
     </PossiblyUndefinedMethod>
-    <UnnecessaryVarAnnotation occurrences="1">
-      <code>\Diadoc\Proto\Events\Entity</code>
-    </UnnecessaryVarAnnotation>
-    <UnusedVariable occurrences="2">
-      <code>$entityId</code>
-      <code>$entityId</code>
-    </UnusedVariable>
-  </file>
-  <file src="tests/Unit/ShelfTest.php">
-    <UnevaluatedCode occurrences="4">
-      <code>$api = $this-&gt;auth();</code>
-      <code>$content = 'ssss';</code>
-      <code>$response = $api-&gt;getApi()-&gt;shelfUpload('sd', 1, $content, 0);</code>
-      <code>self::assertEquals('[0]', $response);</code>
-    </UnevaluatedCode>
   </file>
   <file src="tests/base/BaseTest.php">
     <DocblockTypeContradiction occurrences="1">
       <code>null === $this-&gt;api</code>
     </DocblockTypeContradiction>
-    <MixedAssignment occurrences="1">
-      <code>$value</code>
-    </MixedAssignment>
-    <MixedOperand occurrences="1">
-      <code>$value</code>
-    </MixedOperand>
-  </file>
-  <file src="tests/helpers/ApiClient.php">
-    <MixedAssignment occurrences="1"/>
   </file>
 </files>

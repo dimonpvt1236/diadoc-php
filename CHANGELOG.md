@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## 0.7.0
+
+### Added
+
+- Абстракция логгера HTTP-запросов:
+  - `HttpLoggerInterface` — контракт логгера (`log(HttpLogDto): void`);
+  - `HttpLogDto` — DTO с данными запроса/ответа (`url`, `method`, `response`, `statusCode`, `params`);
+  - `StdoutHttpLogger` — реализация, пишущая лог в STDOUT.
+- Интеграция в `DiadocApi`:
+  - `setLogger(?HttpLoggerInterface)` — установка логгера (доступен для объектов, созданных и конструктором, и `create()`);
+  - логируются и успешные, и ошибочные ответы (в т.ч. 401).
+
+### Backward compatibility
+
+- Конструктор `DiadocApi` и фабрика `DiadocApi::create()` не изменились; логгер подключается опционально через `setLogger()`.
+
 ## 0.6.0
 
 ### Added

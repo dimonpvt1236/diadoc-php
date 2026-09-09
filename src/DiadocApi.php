@@ -49,10 +49,12 @@ use Exception;
 use MagDv\Diadoc\Auth\AuthModeInterface;
 use MagDv\Diadoc\Auth\AuthenticateV3AuthMode;
 use MagDv\Diadoc\Auth\OidcAuthMode;
+use MagDv\Diadoc\Entities\Http\HttpLogDto;
 use MagDv\Diadoc\Exception\DiadocApiException;
 use MagDv\Diadoc\Exception\DiadocApiUnauthorizedException;
 use MagDv\Diadoc\Filter\DocumentsFilter;
 use MagDv\Diadoc\Helper\DateHelper;
+use MagDv\Diadoc\Interfaces\HttpLoggerInterface;
 use MagDv\Diadoc\Signer\Interfaces\SignerProviderInterface;
 
 class DiadocApi
@@ -498,6 +500,8 @@ class DiadocApi
 
     private AuthModeInterface $authMode;
 
+    private ?HttpLoggerInterface $httpLogger = null;
+
     /**
      * Конструктор для обратной совместимости: использует устаревший DiadocAuth (authenticate_v3).
      *
@@ -666,8 +670,11 @@ class DiadocApi
             throw new DiadocApiException(sprintf('Curl error: (%s) %s', \curl_errno($ch), \curl_error($ch)), \curl_errno($ch));
         }
 
-        if (!($httpCode = \curl_getinfo($ch, CURLINFO_HTTP_CODE)) || ($httpCode !== 200 && $httpCode !== 204)) {
-            $message = sprintf('Curl error http code: (%s) %s', $httpCode, $response);
+        $httpCode = \curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $this->logRequest($uri, $postData, $method, $httpCode, (string) $response);
+
+        if (!$httpCode || ($httpCode !== 200 && $httpCode !== 204)) {
+            $message = sprintf('Curl error http code: (%s) %s', $httpCode, (string) $response);
             if ($httpCode === 401) {
                 throw new DiadocApiUnauthorizedException($message, $httpCode);
             }
@@ -682,6 +689,35 @@ class DiadocApi
         }
 
         return $response;
+    }
+
+    /**
+     * Передать данные запроса/ответа в логгер (если он задан).
+     *
+     * @param array|string $postData
+     */
+    protected function logRequest(string $uri, mixed $postData, string $method, int $httpCode, string $response): void
+    {
+        if ($this->httpLogger === null) {
+            return;
+        }
+
+        $params = null;
+        if (is_array($postData) && $postData !== []) {
+            $params = http_build_query($postData);
+        } elseif (is_string($postData) && $postData !== '') {
+            $params = $postData;
+        }
+
+        $this->httpLogger->log(
+            new HttpLogDto(
+                url: $uri,
+                method: $method,
+                response: $response,
+                statusCode: $httpCode,
+                params: $params
+            )
+        );
     }
 
 
@@ -1574,6 +1610,16 @@ class DiadocApi
     public function setToken(?string $token): void
     {
         $this->authMode->setToken($token);
+    }
+
+    /**
+     * Установить логгер HTTP-запросов (например, {@see \MagDv\Diadoc\Logger\StdoutHttpLogger}).
+     *
+     * @param HttpLoggerInterface|null $httpLogger логгер или null, чтобы отключить логирование
+     */
+    public function setLogger(?HttpLoggerInterface $httpLogger): void
+    {
+        $this->httpLogger = $httpLogger;
     }
 
     /**
