@@ -4,3 +4,5 @@
 *.iml
 /.php-cs-fixer.cache
 /.env
+/composer.lock
+/.phplint.cache/

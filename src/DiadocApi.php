@@ -2,13 +2,9 @@
 
 namespace MagDv\Diadoc;
 
-use Diadoc\Proto\Documents\Types\GetDocumentTypesResponseV2;
 use Diadoc\Proto\DssSignRequest;
 use Diadoc\Proto\DssSignResult;
-use Diadoc\Proto\Events\SignedContent;
-use Diadoc\Proto\LoginPassword;
 use Diadoc\Proto\RoamingOperatorInformation;
-use Exception;
 use DateTime;
 use Diadoc\Proto\AcquireCounteragentRequest;
 use Diadoc\Proto\AcquireCounteragentResult;
@@ -17,7 +13,6 @@ use Diadoc\Proto\Box;
 use Diadoc\Proto\Counteragent;
 use Diadoc\Proto\CounteragentCertificateList;
 use Diadoc\Proto\CounteragentList;
-use Diadoc\Proto\CounteragentStatus;
 use Diadoc\Proto\Department;
 use Diadoc\Proto\Docflow\GetDocflowBatchRequest;
 use Diadoc\Proto\Docflow\GetDocflowBatchResponse;
@@ -30,16 +25,20 @@ use Diadoc\Proto\Docflow\SearchDocflowsResponse;
 use Diadoc\Proto\DocumentId;
 use Diadoc\Proto\Documents\Document;
 use Diadoc\Proto\Documents\DocumentList;
+use Diadoc\Proto\Documents\Types\GetDocumentTypesResponseV2;
 use Diadoc\Proto\Events\BoxEvent;
 use Diadoc\Proto\Events\BoxEventList;
 use Diadoc\Proto\Events\Message;
 use Diadoc\Proto\Events\MessagePatch;
 use Diadoc\Proto\Events\MessagePatchToPost;
 use Diadoc\Proto\Events\MessageToPost;
+use Diadoc\Proto\Events\SignedContent;
 use Diadoc\Proto\Forwarding\ForwardDocumentRequest;
+use Diadoc\Proto\GetDocflowBatchResponseV5;
 use Diadoc\Proto\GetOrganizationsByInnListRequest;
 use Diadoc\Proto\GetOrganizationsByInnListResponse;
 use Diadoc\Proto\InvitationDocument;
+use Diadoc\Proto\LoginPassword;
 use Diadoc\Proto\Organization;
 use Diadoc\Proto\OrganizationList;
 use Diadoc\Proto\OrganizationUserPermissions;
@@ -49,10 +48,16 @@ use Diadoc\Proto\SortDirection;
 use Diadoc\Proto\TimeBasedFilter;
 use Diadoc\Proto\Timestamp;
 use Diadoc\Proto\User;
+use Exception;
+use MagDv\Diadoc\Auth\AuthModeInterface;
+use MagDv\Diadoc\Auth\AuthenticateV3AuthMode;
+use MagDv\Diadoc\Auth\OidcAuthMode;
+use MagDv\Diadoc\Entities\Http\HttpLogDto;
 use MagDv\Diadoc\Exception\DiadocApiException;
 use MagDv\Diadoc\Exception\DiadocApiUnauthorizedException;
 use MagDv\Diadoc\Filter\DocumentsFilter;
 use MagDv\Diadoc\Helper\DateHelper;
+use MagDv\Diadoc\Interfaces\HttpLoggerInterface;
 use MagDv\Diadoc\Signer\Interfaces\SignerProviderInterface;
 
 class DiadocApi
@@ -71,6 +76,20 @@ class DiadocApi
      * @var string
      */
     final public const METHOD_POST = 'POST';
+
+    /**
+     * Режим авторизации OpenID Connect (Authorization: Bearer).
+     *
+     * @var string
+     */
+    final public const AUTH_MODE_OIDC = OidcAuthMode::MODE;
+
+    /**
+     * Устаревший режим авторизации DiadocAuth (ddauth_api_client_id + ddauth_token).
+     *
+     * @var string
+     */
+    final public const AUTH_MODE_AUTHENTICATE_V3 = AuthenticateV3AuthMode::MODE;
 
     // Authorization
     /**
@@ -200,6 +219,11 @@ class DiadocApi
      * @var string
      */
     final public const RESOURCE_GET_MESSAGE = '/V3/GetMessage';
+
+    /**
+     * @var string
+     */
+    final public const GET_MESSAGE_V6 = '/V6/GetMessage';
 
     /**
      * @var string
@@ -425,6 +449,12 @@ class DiadocApi
      */
     final public const RESOURCE_GET_DOCFLOWS = '/V2/GetDocflows';
 
+    //Docflow API
+    /**
+     * @var string
+     */
+    final public const GET_DOCFLOWS_V5 = '/V5/GetDocflows';
+
     /**
      * @var string
      */
@@ -488,14 +518,68 @@ class DiadocApi
      */
     final public const RESOURCE_AUTO_SIGN_RECEIPTS_RESULT = '/AutoSignReceiptsResult';
 
-    private ?string $token = null;
+    private AuthModeInterface $authMode;
 
+    private ?HttpLoggerInterface $httpLogger = null;
+
+    /**
+     * Конструктор для обратной совместимости: использует устаревший DiadocAuth (authenticate_v3).
+     *
+     * Для произвольного режима авторизации (в т.ч. OIDC) используйте {@see self::create()}.
+     */
     public function __construct(
-        private readonly string $ddauthApiClientId,
+        string $ddauthApiClientId,
         private readonly string $serviceUrl = 'https://diadoc-api.kontur.ru/',
         private readonly bool $debugRequest = false,
         private readonly ?SignerProviderInterface $signerProvider = null
     ) {
+        $this->authMode = new AuthenticateV3AuthMode($ddauthApiClientId);
+    }
+
+    /**
+     * Создать экземпляр API с произвольным режимом авторизации.
+     *
+     * Пример с OpenID Connect:
+     * <code>
+     * $api = DiadocApi::create(
+     *     new OidcAuthMode($clientId, $clientSecret, 'https://identity.kontur.ru', $serviceUrl),
+     *     $serviceUrl
+     * );
+     * </code>
+     *
+     * @param AuthModeInterface            $authMode       стратегия авторизации ({@see OidcAuthMode}, {@see AuthenticateV3AuthMode}, ...)
+     * @param string                       $serviceUrl     базовый URL API Диадока
+     * @param bool                         $debugRequest   логировать HTTP-запросы
+     * @param SignerProviderInterface|null $signerProvider провайдер подписи для cloud-подписания
+     *
+     * @throws \RuntimeException если serviceUrl стратегии не совпадает с $serviceUrl
+     */
+    public static function create(
+        AuthModeInterface $authMode,
+        string $serviceUrl = 'https://diadoc-api.kontur.ru/',
+        bool $debugRequest = false,
+        ?SignerProviderInterface $signerProvider = null
+    ): self {
+        // OidcAuthMode резолвит scope по своему serviceUrl — он обязан совпадать
+        // с URL, по которому будет ходить сам клиент. Проверка здесь гарантирует,
+        // что рассинхронизация конфигурации будет обнаружена сразу при создании клиента.
+        if (
+            $authMode instanceof OidcAuthMode
+            && rtrim($authMode->serviceUrl, '/') !== rtrim($serviceUrl, '/')
+        ) {
+            throw new \RuntimeException(
+                sprintf(
+                    'OidcAuthMode создан для "%s", а DiadocApi будет работать с "%s": scope может быть определён неверно',
+                    $authMode->serviceUrl,
+                    $serviceUrl
+                )
+            );
+        }
+
+        $api = new self('', $serviceUrl, $debugRequest, $signerProvider);
+        $api->authMode = $authMode;
+
+        return $api;
     }
 
     public function authenticateLogin(string $login, string $password): string
@@ -505,7 +589,7 @@ class DiadocApi
             [],
             [
                 'login' => $login,
-                'password'  => $password
+                'password' => $password
             ],
             self::METHOD_POST
         );
@@ -535,24 +619,21 @@ class DiadocApi
         return $response;
     }
 
-    private function buildRequestHeaders(?string $contentType = null): array
+    private function buildRequestHeaders(?string $contentType = null, string $method = self::METHOD_GET, bool $forAuthenticateCall = false): array
     {
-        $header = sprintf('DiadocAuth ddauth_api_client_id=%s', $this->ddauthApiClientId);
-        if ($token = $this->getToken()) {
-            $header .= sprintf(', ddauth_token=%s', $token);
-        }
-
-        return ['Authorization: ' . $header, "Content-type: " . ($contentType ?: 'application/x-protobuf')];
+        return $this->authMode->buildRequestHeaders($contentType, $method, $forAuthenticateCall);
     }
 
     /**
      * @throws DiadocApiException
      * @throws DiadocApiUnauthorizedException
      */
-    protected function doRequest(string $resource, mixed $postData = [], array $queryParams = [], string $method = self::METHOD_GET, ?string $contentType = null): string
+    protected function doRequest(string $resource, array|string $postData = [], array $queryParams = [], string $method = self::METHOD_GET, ?string $contentType = null): string
     {
-        if (!$this->getToken() && !in_array($resource, [self::RESOURCE_AUTHENTICATE, self::RESOURCE_AUTHENTICATE_V2, self::RESOURCE_AUTHENTICATE_V3], true)) {
-            throw new Exception('Unauthorized request');
+        $isAuthenticateEndpoint = in_array($resource, [self::RESOURCE_AUTHENTICATE, self::RESOURCE_AUTHENTICATE_V2, self::RESOURCE_AUTHENTICATE_V3], true);
+
+        if (!$isAuthenticateEndpoint) {
+            $this->authMode->ensureReady();
         }
 
         $uri = sprintf(
@@ -562,33 +643,58 @@ class DiadocApi
             http_build_query($queryParams)
         );
 
-        $ch = curl_init($uri);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 20);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $this->buildRequestHeaders($contentType));
+        $attempt = 0;
+        while (true) {
+            try {
+                return $this->executeDiadocHttpRequest($uri, $postData, $method, $contentType, $isAuthenticateEndpoint);
+            } catch (DiadocApiUnauthorizedException $e) {
+                ++$attempt;
+                if ($attempt > 1 || !$this->authMode->handleUnauthorized()) {
+                    throw $e;
+                }
+            }
+        }
+    }
+
+    /**
+     * @param array|string $postData
+     * @param bool         $forAuthenticateCall
+     *
+     * @throws DiadocApiException
+     * @throws DiadocApiUnauthorizedException
+     */
+    private function executeDiadocHttpRequest(string $uri, mixed $postData, string $method, ?string $contentType, bool $forAuthenticateCall = false): string
+    {
+        $ch = \curl_init($uri);
+        \curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+        \curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+        \curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+        \curl_setopt($ch, CURLOPT_HTTPHEADER, $this->buildRequestHeaders($contentType, $method, $forAuthenticateCall));
 
         if ($method === self::METHOD_POST) {
-            curl_setopt($ch, CURLOPT_POST, 0);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, is_array($postData) ? http_build_query($postData) : $postData);
+            \curl_setopt($ch, CURLOPT_POST, 0);
+            \curl_setopt($ch, CURLOPT_POSTFIELDS, is_array($postData) ? http_build_query($postData) : $postData);
         } elseif ($method === self::METHOD_GET) {
-            curl_setopt($ch, CURLOPT_HTTPGET, 1);
-            curl_setopt($ch, CURLOPT_BINARYTRANSFER, 1);
+            \curl_setopt($ch, CURLOPT_HTTPGET, 1);
+            \curl_setopt($ch, CURLOPT_BINARYTRANSFER, 1);
         }
 
         if ($this->debugRequest) {
-            curl_setopt($ch, CURLOPT_VERBOSE, true);
-            curl_setopt($ch, CURLOPT_STDERR, STDOUT);
+            \curl_setopt($ch, CURLOPT_VERBOSE, true);
+            \curl_setopt($ch, CURLOPT_STDERR, STDOUT);
         }
 
-        $response = curl_exec($ch);
+        $response = \curl_exec($ch);
 
-        if (curl_errno($ch) !== 0) {
-            throw new DiadocApiException(sprintf('Curl error: (%s) %s', curl_errno($ch), curl_error($ch)), curl_errno($ch));
+        if (\curl_errno($ch) !== 0) {
+            throw new DiadocApiException(sprintf('Curl error: (%s) %s', \curl_errno($ch), \curl_error($ch)), \curl_errno($ch));
         }
 
-        if (!($httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE)) || ($httpCode !== 200 && $httpCode !== 204)) {
-            $message = sprintf('Curl error http code: (%s) %s', $httpCode, $response);
+        $httpCode = \curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $this->logRequest($uri, $postData, $method, $httpCode, (string) $response);
+
+        if (!$httpCode || ($httpCode !== 200 && $httpCode !== 204)) {
+            $message = sprintf('Curl error http code: (%s) %s', $httpCode, (string) $response);
             if ($httpCode === 401) {
                 throw new DiadocApiUnauthorizedException($message, $httpCode);
             }
@@ -596,13 +702,42 @@ class DiadocApi
             throw new DiadocApiException($message, $httpCode);
         }
 
-        curl_close($ch);
+        \curl_close($ch);
 
         if ($response === false) {
             throw new DiadocApiException('Diadoc request error false returned');
         }
 
         return $response;
+    }
+
+    /**
+     * Передать данные запроса/ответа в логгер (если он задан).
+     *
+     * @param array|string $postData
+     */
+    protected function logRequest(string $uri, mixed $postData, string $method, int $httpCode, string $response): void
+    {
+        if ($this->httpLogger === null) {
+            return;
+        }
+
+        $params = null;
+        if (is_array($postData) && $postData !== []) {
+            $params = http_build_query($postData);
+        } elseif (is_string($postData) && $postData !== '') {
+            $params = $postData;
+        }
+
+        $this->httpLogger->log(
+            new HttpLogDto(
+                url: $uri,
+                method: $method,
+                response: $response,
+                statusCode: $httpCode,
+                params: $params
+            )
+        );
     }
 
 
@@ -762,7 +897,7 @@ class DiadocApi
      * @return OrganizationList| \Google\Protobuf\Internal\Message
      * @throws DiadocApiException
      */
-    public function getOrganizationsByInnKpp(string $inn, string $kpp = null, bool $includeRelations = false): OrganizationList
+    public function getOrganizationsByInnKpp(string $inn, ?string $kpp = null, bool $includeRelations = false): OrganizationList
     {
         $response = $this->doRequest(
             self::RESOURCE_GET_ORGANIZATIONS_BY_INN_KPP,
@@ -793,7 +928,7 @@ class DiadocApi
             self::RESOURCE_GET_ORGANIZATIONS_BY_INN_LIST,
             $getOrganizationsByInnListRequest->serializeToString(),
             [
-                'myOrgId'   => $myOrgId
+                'myOrgId' => $myOrgId
             ],
             self::METHOD_POST
         );
@@ -852,7 +987,7 @@ class DiadocApi
      * @return mixed
      * @throws DiadocApiException
      */
-    public function acquireCounteragent(string $myOrgId, string $counteragentOrgId, string $myDepartmentId, string $comment = null): string
+    public function acquireCounteragent(string $myOrgId, string $counteragentOrgId, string $myDepartmentId, ?string $comment = null): string
     {
         return $this->doRequest(
             self::RESOURCE_ACQUIRE_COUNTERAGENTS,
@@ -860,8 +995,8 @@ class DiadocApi
             [
                 'myOrgId' => $myOrgId,
                 'counteragentOrgId' => $counteragentOrgId,
-                'myDepartmentId'    => $myDepartmentId,
-                'comment'   => $comment
+                'myDepartmentId' => $myDepartmentId,
+                'comment' => $comment
             ],
             self::METHOD_POST
         );
@@ -873,7 +1008,7 @@ class DiadocApi
      * @return AsyncMethodResult| \Google\Protobuf\Internal\Message
      * @throws DiadocApiException
      */
-    public function acquireCounteragentWithDocument(string $myOrgId, string $counteragentOrgId, ?string $myDepartmentId = null, InvitationDocument $invitationDocument = null, string $messageToContragent = ''): AsyncMethodResult
+    public function acquireCounteragentWithDocument(string $myOrgId, string $counteragentOrgId, ?string $myDepartmentId = null, ?InvitationDocument $invitationDocument = null, string $messageToContragent = ''): AsyncMethodResult
     {
         $acquireCounteragentRequest = new AcquireCounteragentRequest();
         $acquireCounteragentRequest->setOrgId($counteragentOrgId);
@@ -902,7 +1037,7 @@ class DiadocApi
      * @return AsyncMethodResult| \Google\Protobuf\Internal\Message
      * @throws DiadocApiException
      */
-    public function acquireCounteragentByInnWithDocument(string $myOrgId, string $counteragentInn, ?string $myDepartmentId = null, InvitationDocument $invitationDocument = null, string $messageToContragent = ''): AsyncMethodResult
+    public function acquireCounteragentByInnWithDocument(string $myOrgId, string $counteragentInn, ?string $myDepartmentId = null, ?InvitationDocument $invitationDocument = null, string $messageToContragent = ''): AsyncMethodResult
     {
         $acquireCounteragentRequest = new AcquireCounteragentRequest();
         $acquireCounteragentRequest->setInn($counteragentInn);
@@ -914,7 +1049,7 @@ class DiadocApi
             $acquireCounteragentRequest->serializeToString(),
             [
                 'myOrgId' => $myOrgId,
-                'myDepartmentId'    => $myDepartmentId,
+                'myDepartmentId' => $myDepartmentId,
             ],
             self::METHOD_POST
         );
@@ -1010,19 +1145,19 @@ class DiadocApi
      * @param string $myOrgId
      * @param string|null $counteragentStatus
      * @param int|null $afterIndexKey
-     * @return \Diadoc\Proto\CounteragentList
-     * @throws \MagDv\Diadoc\Exception\DiadocApiException
-     * @throws \MagDv\Diadoc\Exception\DiadocApiUnauthorizedException
+     * @return CounteragentList
+     * @throws DiadocApiException
+     * @throws DiadocApiUnauthorizedException
      */
-    public function getCountragents(string $myOrgId, string $counteragentStatus = null, ?int $afterIndexKey = null): CounteragentList
+    public function getCountragents(string $myOrgId, ?string $counteragentStatus = null, ?int $afterIndexKey = null): CounteragentList
     {
         $response = $this->doRequest(
             self::RESOURCE_GET_COUNTERAGENTS,
             [],
             [
-                'myOrgId'   => $myOrgId,
+                'myOrgId' => $myOrgId,
                 'counteragentStatus' => $counteragentStatus,
-                'afterIndexKey'  => $afterIndexKey
+                'afterIndexKey' => $afterIndexKey
             ]
         );
         $counteragentList = new CounteragentList();
@@ -1031,16 +1166,16 @@ class DiadocApi
         return $counteragentList;
     }
 
-    public function getCountragentsV2(string $myOrgId, string $counteragentStatus = null, ?string $afterIndexKey = null, ?string $query = null): CounteragentList
+    public function getCountragentsV2(string $myOrgId, ?string $counteragentStatus = null, ?string $afterIndexKey = null, ?string $query = null): CounteragentList
     {
         $response = $this->doRequest(
             self::RESOURCE_GET_COUNTERAGENTS_V2,
             [],
             [
-                'myOrgId'   => $myOrgId,
+                'myOrgId' => $myOrgId,
                 'counteragentStatus' => $counteragentStatus,
-                'afterIndexKey'  => $afterIndexKey,
-                'query'  => $query,
+                'afterIndexKey' => $afterIndexKey,
+                'query' => $query,
             ]
         );
         $counteragentList = (new CounteragentList());
@@ -1079,7 +1214,7 @@ class DiadocApi
             [
                 'boxId' => $boxId,
                 'messageId' => $messageId,
-                'entityId'  => $entityId
+                'entityId' => $entityId
             ]
         );
     }
@@ -1090,7 +1225,7 @@ class DiadocApi
      * @return Message| \Google\Protobuf\Internal\Message
      * @throws DiadocApiException
      */
-    public function getMessage(string $boxId, string $messageId, string $entityId = null, ?string $originalSignature = null): Message
+    public function getMessage(string $boxId, string $messageId, ?string $entityId = null, ?string $originalSignature = null): Message
     {
         $response = $this->doRequest(
             self::RESOURCE_GET_MESSAGE,
@@ -1098,8 +1233,36 @@ class DiadocApi
             [
                 'boxId' => $boxId,
                 'messageId' => $messageId,
-                'entityId'  => $entityId,
+                'entityId' => $entityId,
                 'originalSignature' => $originalSignature
+            ]
+        );
+        $message = new Message();
+        $message->mergeFromString($response);
+
+        return $message;
+    }
+
+    /**
+     * @return Message| \Google\Protobuf\Internal\Message
+     * @throws DiadocApiException
+     */
+    public function getMessageV6(
+        string $boxId,
+        string $messageId,
+        ?string $entityId = null,
+        ?string $originalSignature = null,
+        string $injectEntityContent = 'true'
+    ): Message {
+        $response = $this->doRequest(
+            self::GET_MESSAGE_V6,
+            [],
+            [
+                'boxId' => $boxId,
+                'messageId' => $messageId,
+                'entityId' => $entityId,
+                'originalSignature' => $originalSignature,
+                'injectEntityContent' => $injectEntityContent
             ]
         );
         $message = new Message();
@@ -1156,7 +1319,7 @@ class DiadocApi
      *
      * @throws DiadocApiException
      */
-    public function delete(string $boxId, string $messageId, string $documentId = null): bool
+    public function delete(string $boxId, string $messageId, ?string $documentId = null): bool
     {
         $this->doRequest(
             self::RESOURCE_DELETE,
@@ -1203,8 +1366,8 @@ class DiadocApi
             [
                 'boxId' => $boxId,
                 'messageId' => $messageId,
-                'entityId'  => $entityId,
-                'injectEntityContent'  => $injectEntityContent
+                'entityId' => $entityId,
+                'injectEntityContent' => $injectEntityContent
             ]
         );
         $document = new Document();
@@ -1214,8 +1377,7 @@ class DiadocApi
     }
 
 
-
-    public function getDocuments(string $boxId, ?DocumentsFilter $documentsFilter = null, int $sortDirection = null, $afterIndexKey = null): DocumentList
+    public function getDocuments(string $boxId, ?DocumentsFilter $documentsFilter = null, ?int $sortDirection = null, ?int $afterIndexKey = null): DocumentList
     {
         if (is_null($sortDirection)) {
             $sortDirection = SortDirection::Ascending;
@@ -1285,11 +1447,31 @@ class DiadocApi
     }
 
     /**
+     * @throws DiadocApiException
+     */
+    public function getDocflowsV5(string $boxId, GetDocflowBatchRequest $getDocflowBatchRequest): GetDocflowBatchResponseV5
+    {
+        $response = $this->doRequest(
+            self::GET_DOCFLOWS_V5,
+            $getDocflowBatchRequest->serializeToString(),
+            [
+                'boxId' => $boxId
+            ],
+            self::METHOD_POST
+        );
+
+        $getDocflowBatchResponseV5 = new GetDocflowBatchResponseV5();
+        $getDocflowBatchResponseV5->mergeFromString($response);
+
+        return $getDocflowBatchResponseV5;
+    }
+
+    /**
      * @param null $afterIndexKey
      * @return GetDocflowsByPacketIdResponse| \Google\Protobuf\Internal\Message
      * @throws DiadocApiException
      */
-    public function getDocflowsByPacketId(string $boxId, string $packetId, bool $injectEntityContent = false, $afterIndexKey = null, int $count = 100): GetDocflowsByPacketIdResponse
+    public function getDocflowsByPacketId(string $boxId, string $packetId, bool $injectEntityContent = false, ?int $afterIndexKey = null, int $count = 100): GetDocflowsByPacketIdResponse
     {
         $getDocflowsByPacketIdRequest = new GetDocflowsByPacketIdRequest();
         $getDocflowsByPacketIdRequest->setPacketId($packetId);
@@ -1318,7 +1500,7 @@ class DiadocApi
      * @return SearchDocflowsResponse| \Google\Protobuf\Internal\Message
      * @throws DiadocApiException
      */
-    public function searchDocflows(string $boxId, string $queryString, int $searchScope = null, int $firstIndex = null, int $count = 100): SearchDocflowsResponse
+    public function searchDocflows(string $boxId, string $queryString, ?int $searchScope = null, ?int $firstIndex = null, int $count = 100): SearchDocflowsResponse
     {
         $searchDocflowsRequest = new SearchDocflowsRequest();
         $searchDocflowsRequest->setQueryString($queryString);
@@ -1354,8 +1536,8 @@ class DiadocApi
      */
     public function getDocflowEvents(
         string $boxId,
-        DateTime $from = null,
-        DateTime $to = null,
+        ?DateTime $from = null,
+        ?DateTime $to = null,
         ?int $sortDirection = null,
         bool $populateDocuments = false,
         bool $populatePreviousDocumentStates = false,
@@ -1366,12 +1548,12 @@ class DiadocApi
         $fromTimestamp = null;
         $toTimestamp = null;
 
-        if ($from !== null) {
+        if ($from instanceof \DateTime) {
             $fromTimestamp = new Timestamp();
             $fromTimestamp->setTicks(DateHelper::convertDateTimeToTicks($from));
         }
 
-        if ($to !== null) {
+        if ($to instanceof \DateTime) {
             $toTimestamp = new Timestamp();
             $toTimestamp->setTicks(DateHelper::convertDateTimeToTicks($to));
         }
@@ -1424,7 +1606,7 @@ class DiadocApi
         return $boxEvent;
     }
 
-    public function getNewEvents(string $boxId, string $afterEventId = null): BoxEventList
+    public function getNewEvents(string $boxId, ?string $afterEventId = null): BoxEventList
     {
         $response = $this->doRequest(
             self::RESOURCE_GET_NEW_EVENTS,
@@ -1440,14 +1622,132 @@ class DiadocApi
         return $boxEventList;
     }
 
-    protected function getToken(): ?string
+    public function getToken(): ?string
     {
-        return $this->token;
+        return $this->authMode->getToken();
     }
 
     public function setToken(?string $token): void
     {
-        $this->token = $token;
+        $this->authMode->setToken($token);
+    }
+
+    /**
+     * Установить логгер HTTP-запросов (например, {@see \MagDv\Diadoc\Logger\StdoutHttpLogger}).
+     *
+     * @param HttpLoggerInterface|null $httpLogger логгер или null, чтобы отключить логирование
+     */
+    public function setLogger(?HttpLoggerInterface $httpLogger): void
+    {
+        $this->httpLogger = $httpLogger;
+    }
+
+    /**
+     * Текущий режим авторизации (self::AUTH_MODE_OIDC | self::AUTH_MODE_AUTHENTICATE_V3).
+     */
+    public function getAuthMode(): string
+    {
+        return $this->authMode->getMode();
+    }
+
+    /**
+     * Установить ddauth-токен для режима authenticate_v3.
+     *
+     * @throws DiadocApiException если текущий режим не authenticate_v3
+     */
+    public function setLegacyToken(?string $token): void
+    {
+        if (!$this->authMode instanceof AuthenticateV3AuthMode) {
+            throw new DiadocApiException(
+                'setLegacyToken() доступен только при auth mode ' . self::AUTH_MODE_AUTHENTICATE_V3,
+                0
+            );
+        }
+
+        $this->authMode->setToken($token);
+    }
+
+    /**
+     * URL редиректа на страницу авторизации Контур (Authorization Code Flow).
+     *
+     * @see https://developer.kontur.ru/docs/diadoc-api/authentication.html
+     *
+     * @throws DiadocApiException если текущий режим не OIDC
+     */
+    public function buildAuthorizationUrl(string $redirectUri, string $state, ?string $nonce = null): string
+    {
+        return $this->oidc()->buildAuthorizationUrl($redirectUri, $state, $nonce);
+    }
+
+    /**
+     * Обмен authorization code на access/refresh токены.
+     *
+     * @throws DiadocApiException
+     */
+    public function exchangeAuthorizationCode(string $code, string $redirectUri): void
+    {
+        $this->oidc()->exchangeAuthorizationCode($code, $redirectUri);
+    }
+
+    /**
+     * Обновление access_token по refresh_token.
+     *
+     * @throws DiadocApiException
+     */
+    public function refreshAccessToken(): void
+    {
+        $this->oidc()->refreshAccessToken();
+    }
+
+    /**
+     * Установить токены вручную (например из кеша после перезапуска).
+     *
+     * @param int|null $expiresAtUnix время истечения access_token (unix), null — неизвестно (без проактивного refresh)
+     */
+    public function setOAuthSession(string $accessToken, ?string $refreshToken = null, ?int $expiresAtUnix = null): void
+    {
+        $this->oidc()->setOAuthSession($accessToken, $refreshToken, $expiresAtUnix);
+    }
+
+    /**
+     * @return array{access_token: string, refresh_token: ?string, expires_at: ?int}
+     */
+    public function getOAuthSessionState(): array
+    {
+        return $this->oidc()->getOAuthSessionState();
+    }
+
+    /**
+     * Колбэк вызывается после обмена кода, refresh и при {@see setOAuthSession}, чтобы сохранить сессию (файл, БД).
+     *
+     * @param callable|null $callback function (array $session): void
+     */
+    public function setOAuthSessionPersistenceCallback(?callable $callback): void
+    {
+        $this->oidc()->setOAuthSessionPersistenceCallback($callback);
+    }
+
+    /**
+     * OIDC scope для текущего окружения (Diadoc.PublicAPI / Diadoc.PublicAPI.Staging).
+     */
+    public function getOidcScope(): string
+    {
+        return $this->oidc()->getOidcScope();
+    }
+
+    /**
+     * @throws DiadocApiException если текущий режим не OIDC
+     */
+    private function oidc(): OidcAuthMode
+    {
+        if (!$this->authMode instanceof OidcAuthMode) {
+            throw new DiadocApiException(
+                'Метод доступен только при auth mode ' . self::AUTH_MODE_OIDC . '. Используйте DiadocApi::create() с OidcAuthMode.',
+                0
+            );
+        }
+
+        return $this->authMode;
     }
 
     public function generateInvitationDocument(string $content, string $title, bool $signatureRequested = false): InvitationDocument
@@ -1497,7 +1797,7 @@ class DiadocApi
             self::CONTENT_FORM_URL_ENCODED
         );
     }
-    
+
     /**
      * @param string $boxId
      * @param string $messageId

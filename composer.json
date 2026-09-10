@@ -3,15 +3,28 @@
     "description": "Diadoc API implementation",
     "type": "library",
     "license": "MIT",
+    "homepage": "https://github.com/magdv/diadoc-php",
     "authors": [
         {
             "name": "Korolev Denis",
             "email": "d.korolev@magdv.com"
+        },
+        {
+            "name": "Sidorov Sergey",
+            "email": "serjazz7@gmail.com"
+        },
+        {
+            "name": "Dmitry Danilson",
+            "email": "d.danilson@magdv.com"
         }
     ],
+    "support": {
+        "source": "https://github.com/magdv/diadoc-php",
+        "issues": "https://github.com/magdv/diadoc-php/issues"
+    },
     "require": {
         "php": ">=8.2",
-        "google/protobuf": "^4.33.6",
+        "google/protobuf": "^4.31.1 || ^5.34",
         "ext-curl": "*",
         "ext-json": "*",
         "symfony/process": "^6.4 || ^7.4"
@@ -25,9 +38,9 @@
         }
     },
     "require-dev": {
-        "rector/rector": "^0.14.6",
-        "squizlabs/php_codesniffer": "^3.5",
-        "vimeo/psalm": "^3.8",
+        "rector/rector": "^1.2",
+        "squizlabs/php_codesniffer": "^4.0",
+        "vimeo/psalm": "^4.30",
         "phpunit/phpunit": "^8.5",
         "divineomega/do-file-cache": "^2.0",
         "overtrue/phplint": "^9.0"
