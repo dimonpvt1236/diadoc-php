@@ -34,6 +34,10 @@ class SignedContent extends \Google\Protobuf\Internal\Message
      * Generated from protobuf field <code>string SignatureNameOnShelf = 6;</code>
      */
     protected $SignatureNameOnShelf = '';
+    /**
+     * Generated from protobuf field <code>.Diadoc.Proto.PowerOfAttorneyToPost PowerOfAttorney = 7;</code>
+     */
+    protected $PowerOfAttorney = null;
 
     /**
      * Constructor.
@@ -46,6 +50,7 @@ class SignedContent extends \Google\Protobuf\Internal\Message
      *     @type string $NameOnShelf
      *     @type bool $SignWithTestSignature
      *     @type string $SignatureNameOnShelf
+     *     @type \Diadoc\Proto\PowerOfAttorneyToPost $PowerOfAttorney
      * }
      */
     public function __construct($data = NULL) {
@@ -159,6 +164,38 @@ class SignedContent extends \Google\Protobuf\Internal\Message
     {
         GPBUtil::checkString($var, True);
         $this->SignatureNameOnShelf = $var;
+
+        return $this;
+    }
+
+    /**
+     * Generated from protobuf field <code>.Diadoc.Proto.PowerOfAttorneyToPost PowerOfAttorney = 7;</code>
+     * @return \Diadoc\Proto\PowerOfAttorneyToPost|null
+     */
+    public function getPowerOfAttorney()
+    {
+        return $this->PowerOfAttorney;
+    }
+
+    public function hasPowerOfAttorney()
+    {
+        return isset($this->PowerOfAttorney);
+    }
+
+    public function clearPowerOfAttorney()
+    {
+        unset($this->PowerOfAttorney);
+    }
+
+    /**
+     * Generated from protobuf field <code>.Diadoc.Proto.PowerOfAttorneyToPost PowerOfAttorney = 7;</code>
+     * @param \Diadoc\Proto\PowerOfAttorneyToPost $var
+     * @return $this
+     */
+    public function setPowerOfAttorney($var)
+    {
+        GPBUtil::checkMessage($var, \Diadoc\Proto\PowerOfAttorneyToPost::class);
+        $this->PowerOfAttorney = $var;
 
         return $this;
     }
